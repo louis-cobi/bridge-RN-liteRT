@@ -114,6 +114,7 @@ class ExpoLiteRTModule : Module() {
   private val streamTokenBuffers = ConcurrentHashMap<String, StringBuilder>()
   private val streamTokenCounts = ConcurrentHashMap<String, Int>()
   private val mainHandler = Handler(Looper.getMainLooper())
+  private var currentToolExecutor: ((String, String) -> String)? = null
 
   /**
    * Les callbacks LiteRT et runBlocking(IO) tournent hors du thread UI ; JSI/expo exige
@@ -505,10 +506,65 @@ class ExpoLiteRTModule : Module() {
         mapOf(
           "modelId" to e.modelId,
           "name" to file.nameWithoutExtension,
+          "path" to e.path,
           "maxTokens" to 4096,
           "supportsVision" to true,
           "supportsTools" to true
         )
+      }
+    }
+
+    AsyncFunction("unloadAllModels") {
+      runBlocking(Dispatchers.IO) {
+        engines.values.forEach { runCatching { it.engine.close() } }
+        engines.clear()
+      }
+    }
+
+    AsyncFunction("setToolExecutor") { executor: (String, String) -> String ->
+      currentToolExecutor = executor
+    }
+
+    AsyncFunction("getModelsDir") {
+      val ctx = appContext.reactContext?.applicationContext
+        ?: throw CodedException("NO_CONTEXT", "Context React manquant", null)
+      val modelsDir = File(ctx.filesDir, "models")
+      if (!modelsDir.exists()) modelsDir.mkdirs()
+      modelsDir.absolutePath
+    }
+
+    AsyncFunction("listModelFiles") {
+      val ctx = appContext.reactContext?.applicationContext
+        ?: throw CodedException("NO_CONTEXT", "Context React manquant", null)
+      val modelsDir = File(ctx.filesDir, "models")
+      if (!modelsDir.exists()) modelsDir.mkdirs()
+      modelsDir.listFiles()?.filter { it.extension == "litertlm" }?.map { f ->
+        mapOf(
+          "name" to f.name,
+          "path" to f.absolutePath,
+          "size" to f.length()
+        )
+      }.orEmpty()
+    }
+
+    AsyncFunction("deleteModelFile") { filePath: String ->
+      val file = File(filePath)
+      if (file.exists()) {
+        file.delete()
+      } else {
+        throw CodedException("FILE_NOT_FOUND", "Fichier introuvable: $filePath", null)
+      }
+    }
+
+    AsyncFunction("encodeImageBase64") { base64Data: String ->
+      runBlocking(Dispatchers.IO) {
+        val bytes = Base64.decode(base64Data, Base64.DEFAULT)
+        val bmp0 = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+          ?: throw CodedException("IMAGE_DECODE", "Base64 image invalide", null)
+        val scaled = scaleBitmapMax(bmp0, 896)
+        val os = ByteArrayOutputStream()
+        scaled.compress(Bitmap.CompressFormat.JPEG, 90, os)
+        Base64.encodeToString(os.toByteArray(), Base64.NO_WRAP)
       }
     }
   }
