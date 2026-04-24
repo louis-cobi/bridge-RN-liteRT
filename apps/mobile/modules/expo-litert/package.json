@@ -1,0 +1,37 @@
+{
+  "name": "expo-litert",
+  "version": "0.1.0",
+  "description": "Bridge LiteRT-LM (Gemma) pour React Native / Expo",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "app.plugin": "./plugin/index.js",
+  "scripts": {
+    "build": "expo-module build",
+    "clean": "expo-module clean",
+    "lint": "expo-module lint",
+    "test": "expo-module test",
+    "prepublishOnly": "expo-module prepublishOnly"
+  },
+  "keywords": [
+    "react-native",
+    "expo",
+    "litert",
+    "gemma",
+    "llm"
+  ],
+  "repository": "",
+  "bugs": {},
+  "author": "",
+  "license": "MIT",
+  "homepage": "",
+  "peerDependencies": {
+    "expo": "*",
+    "react": "*",
+    "react-native": "*",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "expo-module-scripts": "^5.0.7"
+  },
+  "dependencies": {}
+}

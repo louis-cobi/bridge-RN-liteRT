@@ -1,0 +1,32 @@
+{
+  "expo": {
+    "name": "LiteRT RN",
+    "slug": "litert-rn",
+    "version": "1.0.0",
+    "scheme": "litert-rn",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "plugins": [
+      "expo-router",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "minSdkVersion": 26,
+            "kotlinVersion": "2.2.20"
+          }
+        }
+      ],
+      "expo-litert"
+    ],
+    "android": {
+      "package": "com.litert.rn"
+    },
+    "ios": {
+      "bundleIdentifier": "com.litert.rn"
+    },
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "bridge-rn-litert",
+  "private": true,
+  "description": "Monorepo — commandes Expo : npm run android|start|ios (pas npx expo à la racine).",
+  "scripts": {
+    "start": "npm run start --prefix apps/mobile",
+    "android": "npm run android --prefix apps/mobile",
+    "ios": "npm run ios --prefix apps/mobile"
+  }
+}

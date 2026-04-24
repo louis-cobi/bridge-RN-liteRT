@@ -1,0 +1,50 @@
+# Dépendances
+node_modules/
+
+# Environnement (ne jamais versionner de secrets)
+.env
+.env.*
+!.env.example
+
+# Logs & debug
+*.log
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+pnpm-debug.*
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Éditeurs & IDE
+.idea/
+*.swp
+*.swo
+*~
+
+# VSCode (décommenter !.vscode/extensions.json si tu veux partager les recommandations)
+.vscode/*
+
+# TypeScript
+*.tsbuildinfo
+
+# Tests & couverture
+coverage/
+.nyc_output/
+
+# Builds & caches divers
+.turbo/
+.cache/
+*.pem
+
+# Expo / React Native (racine)
+.expo/
+dist/
+web-build/
+
+# Android — sorties Gradle (incl. modules natifs, chemins longs sur Windows)
+**/android/build/
+**/android/.cxx/
+**/.gradle/
