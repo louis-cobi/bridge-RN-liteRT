@@ -24,7 +24,7 @@ export default function ChatScreen() {
   const [input, setInput] = React.useState('');
   const listRef = useRef<FlatList>(null);
 
-  const { messages, sendMessage, sendImage, isGenerating, stop, clear } = useChat({
+  const { messages, sendMessage, sendImage, isGenerating, stop, clear, tokensPerSec } = useChat({
     modelId: settings.modelId ?? '',
     tools,
     systemPrompt: settings.systemPrompt,
@@ -51,6 +51,7 @@ export default function ChatScreen() {
     >
       <ModelStatusBar
         modelName={settings.modelId ? settings.modelPath.split('/').pop() : undefined}
+        tokensPerSec={tokensPerSec ?? undefined}
         backendLabel={settings.useGpu ? 'GPU' : 'CPU'}
         status={settings.modelId ? 'prêt' : 'chargez un modèle'}
       />

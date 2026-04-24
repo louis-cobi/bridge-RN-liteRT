@@ -7,7 +7,6 @@ import {
   type Tool,
   type ToolCall,
 } from 'expo-litert';
-import { z } from 'zod';
 
 const MAX_TOOL_ITER = 10;
 
@@ -29,7 +28,11 @@ export function useChat(options: ChatOptions) {
       : []
   );
   const [isGenerating, setIsGenerating] = useState(false);
+  /** Dernière vitesse de génération (texte intégral ou streaming), tok/s. */
+  const [tokensPerSec, setTokensPerSec] = useState<number | null>(null);
   const stopRef = useRef<(() => void) | null>(null);
+  /** Résout l’attente de fin de stream (done, erreur, ou stop utilisateur). */
+  const streamEndRef = useRef<(() => void) | null>(null);
 
   const runAssistant = useCallback(
     async (history: Message[]) => {
@@ -58,6 +61,7 @@ export function useChat(options: ChatOptions) {
             toolCalls: res.toolCalls,
           };
           working = [...working, assistantMsg];
+          setMessages(working);
 
           for (const call of res.toolCalls) {
             const result = await options.onToolCall(call);
@@ -68,6 +72,7 @@ export function useChat(options: ChatOptions) {
               content: result,
             });
           }
+          setMessages(working);
           continue;
         }
 
@@ -77,6 +82,9 @@ export function useChat(options: ChatOptions) {
         };
         working = [...working, assistantMsg];
         setMessages(working);
+        if (res.durationMs > 0) {
+          setTokensPerSec(res.completionTokens / (res.durationMs / 1000));
+        }
         return;
       }
 
@@ -94,27 +102,46 @@ export function useChat(options: ChatOptions) {
   const sendMessage = useCallback(
     async (text: string) => {
       if (!text.trim() || isGenerating) return;
+      const hasTools = (options.tools?.length ?? 0) > 0;
+      const useStream = Boolean(options.streaming) && !hasTools;
+
       const userMsg: Message = { role: 'user', content: text.trim() };
       const next = [...messages, userMsg];
       setMessages(next);
       setIsGenerating(true);
       try {
-        if (options.streaming) {
+        if (useStream) {
           const assistantDraft: Message = { role: 'assistant', content: '' };
           setMessages([...next, assistantDraft]);
+
+          const streamDone = new Promise<void>((resolve) => {
+            streamEndRef.current = () => {
+              streamEndRef.current = null;
+              resolve();
+            };
+          });
+          const t0 = Date.now();
+          const finishStream = () => {
+            stopRef.current = null;
+            const end = streamEndRef.current;
+            if (end) {
+              streamEndRef.current = null;
+              end();
+            }
+          };
 
           const cancel = await generateStream(
             {
               modelId: options.modelId,
               messages: next,
-              tools: options.tools?.map((t) => t.definition),
+              tools: undefined,
               temperature: options.temperature ?? 0.7,
               topP: options.topP ?? 0.9,
               maxTokens: options.maxTokens ?? 512,
               stream: true,
             },
             {
-              onToken: ({ token, done }) => {
+              onToken: ({ token, done, tokenCount: tc }) => {
                 setMessages((prev) => {
                   const copy = [...prev];
                   const last = copy[copy.length - 1];
@@ -127,12 +154,20 @@ export function useChat(options: ChatOptions) {
                   return copy;
                 });
                 if (done) {
-                  stopRef.current = null;
+                  const ms = Date.now() - t0;
+                  if (ms > 0 && tc != null && tc > 0) {
+                    setTokensPerSec(tc / (ms / 1000));
+                  }
+                  finishStream();
                 }
+              },
+              onError: () => {
+                finishStream();
               },
             }
           );
           stopRef.current = cancel;
+          await streamDone;
         } else {
           await runAssistant(next);
         }
@@ -162,6 +197,11 @@ export function useChat(options: ChatOptions) {
   const stop = useCallback(() => {
     stopRef.current?.();
     stopRef.current = null;
+    const end = streamEndRef.current;
+    if (end) {
+      streamEndRef.current = null;
+      end();
+    }
     setIsGenerating(false);
   }, []);
 
@@ -178,6 +218,7 @@ export function useChat(options: ChatOptions) {
     isGenerating,
     stop,
     clear,
+    tokensPerSec,
   };
 }
 

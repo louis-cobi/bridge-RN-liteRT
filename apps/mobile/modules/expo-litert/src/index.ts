@@ -1,10 +1,6 @@
-/**
- * API TypeScript unifiée pour le bridge LiteRT-LM (Android + iOS stub).
- */
 import { EventEmitter, type EventSubscription } from 'expo-modules-core';
 import { z } from 'zod';
 import Native from './ExpoLiteRTModule';
-import type { NativeGenerateResult } from './ExpoLiteRTModule';
 
 const emitter = new EventEmitter(Native);
 
@@ -50,15 +46,21 @@ export type ToolDefinition = z.infer<typeof ToolDefinitionSchema>;
 export type ModelInfo = {
   modelId: string;
   name: string;
+  path?: string;
   maxTokens: number;
   supportsVision: boolean;
   supportsTools: boolean;
+  supportsMtp?: boolean;
 };
 
 export type LoadModelOptions = {
   modelPath: string;
   modelId?: string;
   useGpu?: boolean;
+  useNpu?: boolean;
+  enableMtp?: boolean;
+  maxTokens?: number;
+  maxImages?: number;
 };
 
 export type GenerateParams = {
@@ -68,21 +70,43 @@ export type GenerateParams = {
   maxTokens?: number;
   temperature?: number;
   topP?: number;
-  stream?: boolean;
+  channels?: string[];
+  autoExecuteTools?: boolean;
 };
 
 export type GenerateResult = {
   text: string;
   toolCalls: ToolCall[] | null;
+  thinking?: string | null;
   promptTokens: number;
   completionTokens: number;
   durationMs: number;
+  maxTokensRequested: number;
 };
 
 export type StreamCallbacks = {
-  onToken?: (payload: { token: string; done: boolean; tokenCount?: number }) => void;
+  onToken?: (payload: { token: string; done: boolean; tokenCount?: number; channel?: string }) => void;
   onToolCall?: (payload: { toolCall: ToolCall }) => void;
   onError?: (err: Error) => void;
+};
+
+export type DownloadProgress = {
+  progress: number;
+  status: string;
+  downloadedSize?: number;
+  totalSize?: number;
+};
+
+export type DownloadResult = {
+  localPath: string;
+  fileName: string;
+  size: number;
+};
+
+export type DownloadOptions = {
+  repoId?: string;
+  fileName?: string;
+  token?: string;
 };
 
 export type ImageContent = {
@@ -91,10 +115,12 @@ export type ImageContent = {
   mimeType: string;
 };
 
-export type Tool<T extends z.ZodTypeAny = z.ZodTypeAny> = {
-  definition: ToolDefinition;
-  parameterSchema: T;
-  execute: (args: z.infer<T>) => Promise<string>;
+export type ToolExecutor = (name: string, args: string) => string;
+
+export type ModelFile = {
+  name: string;
+  path: string;
+  size: number;
 };
 
 export function defineTool<T extends z.ZodObject<z.ZodRawShape>>(config: {
@@ -102,7 +128,7 @@ export function defineTool<T extends z.ZodObject<z.ZodRawShape>>(config: {
   description: string;
   parameters: T;
   execute: (args: z.infer<T>) => Promise<string>;
-}): Tool<T> {
+}) {
   const json = config.parameters.toJSONSchema() as Record<string, unknown>;
   const properties = (json.properties ?? {}) as Record<string, unknown>;
   const required = Array.isArray(json.required) ? (json.required as string[]) : undefined;
@@ -144,18 +170,6 @@ function toNativeTools(tools: ToolDefinition[] | undefined): Record<string, unkn
   }));
 }
 
-/**
- * Le bridge Expo → Kotlin n’accepte que des POJO sérialisables (pas de proxies Zod, etc.).
- * Sans ça, generateStream peut lever « Cannot convert '[object Object]' to a Kotlin type ».
- */
-function toNativeBridgePayload(payload: Record<string, unknown>): Record<string, unknown> {
-  return JSON.parse(JSON.stringify(payload, (_k, v) => (v === undefined ? null : v))) as Record<
-    string,
-    unknown
-  >;
-}
-
-/** Android File() n’accepte pas les URI file:// — normaliser avant le bridge natif. */
 export function normalizeModelPath(modelPath: string): string {
   const p = modelPath.trim();
   if (p.startsWith('file://')) {
@@ -164,18 +178,55 @@ export function normalizeModelPath(modelPath: string): string {
   return p;
 }
 
+export async function downloadModel(
+  options: DownloadOptions = {},
+  onProgress?: (progress: DownloadProgress) => void
+): Promise<DownloadResult> {
+  const sub = onProgress
+    ? emitter.addListener('onDownloadProgress', (e: Record<string, unknown>) => {
+        onProgress({
+          progress: Number(e.progress ?? 0),
+          status: String(e.status ?? ''),
+          downloadedSize: e.downloadedSize as number | undefined,
+          totalSize: e.totalSize as number | undefined,
+        });
+      })
+    : undefined;
+
+  try {
+    const result = await Native.downloadModel({
+      repoId: options.repoId ?? 'litert-community/gemma-4-E2B-it-litert-lm',
+      fileName: options.fileName ?? 'gemma-4-E2B-it-litert-lm.litertlm',
+      token: options.token,
+    });
+    return {
+      localPath: String(result.localPath),
+      fileName: String(result.fileName),
+      size: Number(result.size),
+    };
+  } finally {
+    sub?.remove();
+  }
+}
+
 export async function loadModel(options: LoadModelOptions): Promise<ModelInfo> {
   const raw = await Native.loadModel({
     modelPath: normalizeModelPath(options.modelPath),
     modelId: options.modelId,
     useGpu: options.useGpu ?? false,
+    useNpu: options.useNpu ?? false,
+    enableMtp: options.enableMtp ?? false,
+    maxTokens: options.maxTokens,
+    maxImages: options.maxImages,
   });
   return {
     modelId: String(raw.modelId),
     name: String(raw.name),
+    path: String(raw.path ?? ''),
     maxTokens: Number(raw.maxTokens ?? 4096),
     supportsVision: Boolean(raw.supportsVision),
     supportsTools: Boolean(raw.supportsTools),
+    supportsMtp: Boolean(raw.supportsMtp),
   };
 }
 
@@ -183,28 +234,38 @@ export async function unloadModel(modelId: string): Promise<void> {
   await Native.unloadModel(modelId);
 }
 
+export async function unloadAllModels(): Promise<void> {
+  await Native.unloadAllModels();
+}
+
+export async function setToolExecutor(executor: ToolExecutor): Promise<void> {
+  await Native.setToolExecutor(executor);
+}
+
 export async function generateText(params: GenerateParams): Promise<GenerateResult> {
   MessageSchema.array().parse(params.messages);
-  const raw: NativeGenerateResult = await Native.generateText(
-    toNativeBridgePayload({
-      modelId: params.modelId,
+  const raw: NativeGenerateResult = await Native.generateText({
+    modelId: params.modelId,
+    requestJson: JSON.stringify({
       messages: toNativeMessages(params.messages),
       tools: toNativeTools(params.tools),
       maxTokens: params.maxTokens ?? 512,
       temperature: params.temperature ?? 0.7,
       topP: params.topP ?? 0.9,
-      stream: params.stream ?? false,
-    })
-  );
+    }),
+    autoExecuteTools: params.autoExecuteTools ?? false,
+  });
   const toolCalls = raw.toolCalls?.length
     ? raw.toolCalls.map((t) => ToolCallSchema.parse(t))
     : null;
   return {
     text: raw.text,
     toolCalls,
+    thinking: raw.thinking as string | null,
     promptTokens: raw.promptTokens,
     completionTokens: raw.completionTokens,
     durationMs: raw.durationMs,
+    maxTokensRequested: raw.maxTokensRequested,
   };
 }
 
@@ -221,8 +282,8 @@ export async function generateStream(
       maxTokens: params.maxTokens ?? 512,
       temperature: params.temperature ?? 0.7,
       topP: params.topP ?? 0.9,
-      stream: true,
-    })
+    }),
+    params.autoExecuteTools ?? false
   );
 
   const subs: EventSubscription[] = [];
@@ -233,6 +294,7 @@ export async function generateStream(
         token: String(e.token ?? ''),
         done: Boolean(e.done),
         tokenCount: e.tokenCount as number | undefined,
+        channel: e.channel as string | undefined,
       });
     })
   );
@@ -252,8 +314,10 @@ export async function generateStream(
     })
   );
   subs.push(
-    emitter.addListener('onError', () => {
-      callbacks.onError?.(new Error('Erreur streaming LiteRT'));
+    emitter.addListener('onError', (e: Record<string, unknown>) => {
+      if (e.streamId !== streamId) return;
+      const msg = typeof e.message === 'string' && e.message ? e.message : 'Erreur streaming LiteRT';
+      callbacks.onError?.(new Error(msg));
     })
   );
 
@@ -263,14 +327,64 @@ export async function generateStream(
   };
 }
 
+export async function cancelGeneration(streamId: string): Promise<void> {
+  await Native.cancelGeneration(streamId);
+}
+
 export async function encodeImageForChat(uri: string): Promise<ImageContent> {
   const imagePath = uri.replace(/^file:\/\//, '');
   const imageBase64 = await Native.encodeImage(imagePath);
   return { type: 'image', imageBase64, mimeType: 'image/jpeg' };
 }
 
+export async function encodeImageBase64(base64Data: string): Promise<string> {
+  return await Native.encodeImageBase64(base64Data);
+}
+
+export async function getModelInfo(modelId: string): Promise<ModelInfo> {
+  const raw = await Native.getModelInfo(modelId);
+  return {
+    modelId: String(raw.modelId),
+    name: String(raw.name),
+    path: String(raw.path ?? ''),
+    maxTokens: Number(raw.maxTokens ?? 4096),
+    supportsVision: Boolean(raw.supportsVision),
+    supportsTools: Boolean(raw.supportsTools),
+    supportsMtp: Boolean(raw.supportsMtp),
+  };
+}
+
+export async function listLoadedModels(): Promise<ModelInfo[]> {
+  const raw = await Native.listLoadedModels();
+  return raw.map((r: Record<string, unknown>) => ({
+    modelId: String(r.modelId),
+    name: String(r.name),
+    maxTokens: Number(r.maxTokens ?? 4096),
+    supportsVision: Boolean(r.supportsVision),
+    supportsTools: Boolean(r.supportsTools),
+    supportsMtp: Boolean(r.supportsMtp),
+  }));
+}
+
+export async function getModelsDir(): Promise<string> {
+  return await Native.getModelsDir();
+}
+
+export async function listModelFiles(): Promise<ModelFile[]> {
+  const raw = await Native.listModelFiles();
+  return raw.map((r: Record<string, unknown>) => ({
+    name: String(r.name),
+    path: String(r.path),
+    size: Number(r.size),
+  }));
+}
+
+export async function deleteModelFile(filePath: string): Promise<void> {
+  await Native.deleteModelFile(filePath);
+}
+
 export function addLiteRTListener(
-  event: 'onModelLoadProgress' | 'onToken' | 'onToolCall' | 'onError',
+  event: 'onModelLoadProgress' | 'onDownloadProgress' | 'onToken' | 'onToolCall' | 'onError',
   listener: (data: Record<string, unknown>) => void
 ): EventSubscription {
   return emitter.addListener(event, listener);

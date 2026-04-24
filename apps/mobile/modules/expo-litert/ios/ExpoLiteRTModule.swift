@@ -48,7 +48,7 @@ public class ExpoLiteRTModule: Module {
       // no-op
     }
 
-    AsyncFunction("generateText") { (_: [String: Any]) -> [String: Any] in
+    AsyncFunction("generateText") { (_: String, _: String) -> [String: Any] in
       throw LiteRTIOSInferenceException()
     }
 

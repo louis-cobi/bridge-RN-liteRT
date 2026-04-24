@@ -224,19 +224,34 @@ class ExpoLiteRTModule : Module() {
       runBlocking(Dispatchers.IO) {
         val modelId = raw["modelId"] as? String
           ?: throw CodedException("INVALID_ARG", "modelId requis", null)
+        val requestJson = raw["requestJson"] as? String
+          ?: throw CodedException("INVALID_ARG", "requestJson requis", null)
+        val autoExecuteTools = raw["autoExecuteTools"] as? Boolean ?: false
         val entry = engines[modelId]
           ?: throw CodedException("NOT_LOADED", "Modèle non chargé: $modelId", null)
 
-        @Suppress("UNCHECKED_CAST")
-        val messages = raw["messages"] as? List<Map<String, Any?>>
-          ?: throw CodedException("INVALID_ARG", "messages requis", null)
-
-        @Suppress("UNCHECKED_CAST")
-        val tools = raw["tools"] as? List<Map<String, Any?>> ?: emptyList()
-
-        val maxTokens = (raw["maxTokens"] as? Number)?.toInt() ?: 512
-        val temperature = (raw["temperature"] as? Number)?.toFloat() ?: 0.7f
-        val topP = (raw["topP"] as? Number)?.toFloat() ?: 0.9f
+        val root = JSONObject(requestJson)
+        val messagesArr = root.getJSONArray("messages")
+        val messages = ArrayList<Map<String, Any?>>()
+        for (i in 0 until messagesArr.length()) {
+          val item = messagesArr.get(i)
+          if (item is JSONObject) {
+            messages.add(jsonObjectToMap(item))
+          }
+        }
+        val tools = ArrayList<Map<String, Any?>>()
+        val toolsArr = root.optJSONArray("tools")
+        if (toolsArr != null) {
+          for (i in 0 until toolsArr.length()) {
+            val item = toolsArr.get(i)
+            if (item is JSONObject) {
+              tools.add(jsonObjectToMap(item))
+            }
+          }
+        }
+        val maxTokens = (root.opt("maxTokens") as? Number)?.toInt() ?: 512
+        val temperature = (root.opt("temperature") as? Number)?.toFloat() ?: 0.7f
+        val topP = (root.opt("topP") as? Number)?.toFloat() ?: 0.9f
 
         val started = SystemClock.elapsedRealtime()
         val promptChars = estimatePromptChars(messages)
