@@ -114,7 +114,6 @@ class ExpoLiteRTModule : Module() {
   private val streamTokenBuffers = ConcurrentHashMap<String, StringBuilder>()
   private val streamTokenCounts = ConcurrentHashMap<String, Int>()
   private val mainHandler = Handler(Looper.getMainLooper())
-  private var currentToolExecutor: ((String, String) -> String)? = null
 
   /**
    * Les callbacks LiteRT et runBlocking(IO) tournent hors du thread UI ; JSI/expo exige
@@ -519,10 +518,6 @@ class ExpoLiteRTModule : Module() {
         engines.values.forEach { runCatching { it.engine.close() } }
         engines.clear()
       }
-    }
-
-    AsyncFunction("setToolExecutor") { executor: (String, String) -> String ->
-      currentToolExecutor = executor
     }
 
     AsyncFunction("getModelsDir") {

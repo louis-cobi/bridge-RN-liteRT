@@ -115,8 +115,6 @@ export type ImageContent = {
   mimeType: string;
 };
 
-export type ToolExecutor = (name: string, args: string) => string;
-
 export type ModelFile = {
   name: string;
   path: string;
@@ -236,10 +234,6 @@ export async function unloadModel(modelId: string): Promise<void> {
 
 export async function unloadAllModels(): Promise<void> {
   await Native.unloadAllModels();
-}
-
-export async function setToolExecutor(executor: ToolExecutor): Promise<void> {
-  await Native.setToolExecutor(executor);
 }
 
 export async function generateText(params: GenerateParams): Promise<GenerateResult> {

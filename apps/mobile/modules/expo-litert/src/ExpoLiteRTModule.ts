@@ -16,7 +16,6 @@ export interface ExpoLiteRTNativeModule extends NativeModule {
   loadModel(raw: Record<string, unknown>): Promise<Record<string, unknown>>;
   unloadModel(modelId: string): Promise<void>;
   unloadAllModels(): Promise<void>;
-  setToolExecutor(executor: (name: string, args: string) => string): Promise<void>;
   generateText(raw: Record<string, unknown>): Promise<NativeGenerateResult>;
   generateStream(modelId: string, requestJson: string, autoExecuteTools?: boolean): Promise<string>;
   cancelGeneration(streamId: string): Promise<void>;
